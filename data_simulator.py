@@ -9,18 +9,18 @@ synthetic since we don't have real per-user ratings to work with.
  
 Expected raw CSV columns: Rank, Title, Genre, Description, Director,
 Actors, Year, Runtime (Minutes), Rating, Votes, Revenue (Millions),
-Metascore. Only the top N most-voted movies are kept (see CATALOG_SIZE)
-so the demo stays fast and recognizable rather than using all 1000.
+Metascore. Uses the full catalog (see CATALOG_SIZE).
 """
  
 import os
 import random
+import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
  
 random.seed(42)
  
-CATALOG_SIZE = 300  # how many of the most-voted movies to keep for the demo
+CATALOG_SIZE = 1000  # how many movies to load (1000 = the full raw dataset)
  
 _DATA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "IMDB-Movie-Data.csv")
  
@@ -88,9 +88,28 @@ def _weighted_rating(movie_genres: list, preferences: list, base_quality: float)
     return max(1, min(5, round(score)))
  
  
-def generate_users(n_users: int = 12, history_len: int = 12) -> list:
+def _weighted_sample(movies: list, k: int) -> list:
+    """Sample k movies without replacement, biased toward popular titles
+    (by raw vote count -- log-scaling flattens the signal too much to be
+    useful here). Mirrors real viewing behavior (people mostly watch
+    what's popular) and, as a side effect, keeps meaningful overlap
+    between different simulated users' watch histories even across a
+    1000-movie catalog -- without this, uniform random sampling makes it
+    very unlikely two users ever watched the same movie, starving the
+    Pearson-correlation step of shared ratings to compare."""
+    k = min(k, len(movies))
+    if k == 0:
+        return []
+    weights = np.array([m["votes"] for m in movies], dtype=float)
+    probs = weights / weights.sum()
+    idx = np.random.choice(len(movies), size=k, replace=False, p=probs)
+    return [movies[i] for i in idx]
+ 
+ 
+def generate_users(n_users: int = 12, history_len: int = 25) -> list:
     """Create n_users synthetic user profiles with preferences and watch
-    history, drawn from the real 300-movie catalog."""
+    history, drawn from the real movie catalog."""
+    np.random.seed(42)
     users = []
     for i in range(n_users):
         name = FIRST_NAMES[i % len(FIRST_NAMES)] + (str(i) if i >= len(FIRST_NAMES) else "")
@@ -101,7 +120,7 @@ def generate_users(n_users: int = 12, history_len: int = 12) -> list:
         pool_other = [m for m in MOVIES if not (set(m["genres"]) & set(preferences))]
         n_pref = min(len(pool_preferred), max(1, int(history_len * 0.7)))
         n_other = min(len(pool_other), history_len - n_pref)
-        chosen = random.sample(pool_preferred, n_pref) + random.sample(pool_other, n_other)
+        chosen = _weighted_sample(pool_preferred, n_pref) + _weighted_sample(pool_other, n_other)
         random.shuffle(chosen)
  
         watch_history = []
@@ -129,3 +148,5 @@ if __name__ == "__main__":
     print(f"Loaded {len(MOVIES)} movies across {len(GENRES)} genres: {GENRES}")
     users = generate_users(3)
     print(json.dumps(users[0], indent=2))
+ 
+ 
