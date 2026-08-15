@@ -1,3 +1,4 @@
+
 """
 data_simulator.py
 ------------------
@@ -16,6 +17,7 @@ import os
 import random
 import numpy as np
 import pandas as pd
+from scipy.stats import linregress
 from datetime import datetime, timedelta
  
 random.seed(42)
@@ -31,18 +33,24 @@ def _load_movies(path: str = _DATA_PATH, catalog_size: int = CATALOG_SIZE) -> li
     `primary_genre` (first listed genre) is kept as a single-label field so
     watch-history logging and the pie/line charts don't need to change."""
     df = pd.read_csv(path)
-    df = df.sort_values("Votes", ascending=False).head(catalog_size)
  
-    # The raw Kaggle export has real gaps: ~3% of rows are missing Metascore
-    # and Revenue (some films were never scored by critics, or lack reported
-    # box-office numbers). Left as NaN, these would silently corrupt every
-    # normalized score downstream (NaN poisons min/max and sort order), so
-    # fill them here: Metascore defaults to the dataset's median critic
-    # score, Revenue to 0 (it isn't used in any ranking, just kept for
-    # reference).
-    df["Metascore"] = df["Metascore"].fillna(df["Metascore"].median())
+    # The raw Kaggle export has real gaps: ~6% of rows (64 of 1000) are
+    # missing Metascore, and some are missing Revenue. Left as NaN, these
+    # would silently corrupt every normalized score downstream (NaN poisons
+    # min/max and sort order). A flat median fill works but throws away
+    # information -- Rating (never missing) and Metascore are correlated
+    # at r=0.63 across the ~936 movies that have both, so a movie's own
+    # Rating predicts its likely Metascore far better than "assume every
+    # missing one is exactly average." Fit that relationship on the full
+    # dataset (more data = a more reliable fit) before trimming down to
+    # catalog_size.
+    complete = df.dropna(subset=["Rating", "Metascore"])
+    slope, intercept, r_value, _, _ = linregress(complete["Rating"], complete["Metascore"])
+    predicted = (slope * df["Rating"] + intercept).clip(0, 100)
+    df["Metascore"] = df["Metascore"].fillna(predicted)
     df["Revenue (Millions)"] = df["Revenue (Millions)"].fillna(0.0)
  
+    df = df.sort_values("Votes", ascending=False).head(catalog_size)
     df = df.sample(frac=1, random_state=42).reset_index(drop=True)  # shuffle order
  
     movies = []
@@ -148,5 +156,3 @@ if __name__ == "__main__":
     print(f"Loaded {len(MOVIES)} movies across {len(GENRES)} genres: {GENRES}")
     users = generate_users(3)
     print(json.dumps(users[0], indent=2))
- 
- 
