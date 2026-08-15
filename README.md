@@ -1,4 +1,4 @@
-AI-Powered Movie Recommendation System
+**AI-Powered Movie Recommendation System**
 
 A Python movie recommendation engine that mimics the personalization layer of a real GenAI media/entertainment product — built for a hackathon demo. Runs on a real movie catalog (IMDB-Movie-Data.csv, the full 1000-movie IMDB dataset), not a hand-typed list.
 
