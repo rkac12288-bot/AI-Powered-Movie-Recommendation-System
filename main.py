@@ -1,20 +1,21 @@
+
 """
 main.py
 --------
 End-to-end demo of the AI-Powered Movie Recommendation System.
-
+ 
 Run:
     python main.py
-
+ 
 This will:
   1. Simulate a set of users with preferences and watch histories.
   2. Generate content-based, "since you liked X", collaborative (Pearson),
      and cluster-based (k-means) recommendations for a target user.
   3. Save two visualizations (genre pie chart + rating trend) as PNGs.
 """
-
+ 
 import json
-
+ 
 from data_simulator import generate_users
 from recommendation_engine import (
     content_based_recommend,
@@ -24,43 +25,60 @@ from recommendation_engine import (
     collaborative_recommend,
     cluster_users,
     cluster_top_movies,
+    get_trending,
 )
 from visualize import plot_genre_pie, plot_rating_trend
-
-
+ 
+ 
 def print_header(title: str):
     print("\n" + "=" * 60)
     print(title)
     print("=" * 60)
-
-
+ 
+ 
 def main():
+    # 0. Cold-start fallback --------------------------------------------------
+    print_header("TRENDING (popularity fallback for brand-new users)")
+    for m in get_trending(n=5):
+        print(f"  -> {m['title']} ({m['year']}, rating {m['rating']}, "
+              f"metascore {m['metascore']}, {m['votes']:,} votes)")
+ 
     # 1. Simulate users -----------------------------------------------------
-    users = generate_users(n_users=10, history_len=8)
+    users = generate_users(n_users=12, history_len=25)
+ 
+    # Pick a demo target that actually has a positively-correlated peer, so
+    # the walkthrough showcases every recommendation type -- some users
+    # legitimately have no taste-aligned peers (a real, honest outcome of
+    # collaborative filtering), but that makes a weak first demo example.
+    matrix = build_user_item_matrix(users)
     target = users[0]
-
+    for u in users:
+        if any(corr > 0 for _, corr in pearson_similar_users(matrix, u["name"])):
+            target = u
+            break
+ 
     print_header(f"USER PROFILE: {target['name']}")
     print(json.dumps({k: v for k, v in target.items() if k != "watch_history"}, indent=2))
     print(f"\nWatch history ({len(target['watch_history'])} movies):")
     for w in target["watch_history"]:
         print(f"  - {w['movie']:<28} genre={w['genre']:<10} "
               f"director={w['director']:<22} rating={w['rating']} date={w['date']}")
-
+ 
     # 2. Content-based recommendations --------------------------------------
-    print_header("CONTENT-BASED RECOMMENDATIONS (genre match, ranked by avg rating)")
+    print_header("CONTENT-BASED RECOMMENDATIONS (genre + rating + metascore + popularity + recency)")
     for m in content_based_recommend(target, n=5):
-        print(f"  -> {m['title']} ({m['genre']}, avg rating {m['avg_rating']})")
-
+        print(f"  -> {m['title']} ({'/'.join(m['genres'])}, rating {m['rating']}, "
+              f"metascore {m['metascore']}, {m['votes']:,} votes)")
+ 
     favorite, similar = similar_to_favorite(target, n=3)
     if favorite:
         print(f"\nSince you liked '{favorite['movie']}' "
-              f"(you rated it {favorite['rating']}/5), you might enjoy:")
+              f"(you rated it {favorite['rating']}/5), nearest neighbors by content vector:")
         for m in similar:
-            print(f"  -> {m['title']}  (dir. {m['director']}, genre {m['genre']})")
-
+            print(f"  -> {m['title']}  (dir. {m['director']}, genres {'/'.join(m['genres'])})")
+ 
     # 3. Collaborative filtering (Pearson correlation) ----------------------
     print_header("COLLABORATIVE FILTERING (Pearson correlation between users)")
-    matrix = build_user_item_matrix(users)
     similar_users = pearson_similar_users(matrix, target["name"])
     if similar_users:
         print("Most similar users by rating correlation:")
@@ -71,7 +89,7 @@ def main():
             print(f"  -> {rec['title']} (predicted score {rec['predicted_score']})")
     else:
         print("Not enough overlapping ratings between users to compute correlations.")
-
+ 
     # 4. K-means clustering ---------------------------------------------------
     print_header("K-MEANS CLUSTERING OF USERS BY GENRE PREFERENCE")
     clusters = cluster_users(users, k=3)
@@ -81,14 +99,14 @@ def main():
         print("  Top-rated movies in this cluster:")
         for m in top_by_cluster[cluster_id]:
             print(f"    -> {m['title']} (avg {m['avg_cluster_rating']}, {m['votes']} votes)")
-
+ 
     # 5. Visualizations -------------------------------------------------------
     print_header("VISUALIZATIONS")
     pie_path = plot_genre_pie(target, "genre_distribution.png")
     trend_path = plot_rating_trend(target, "rating_trend.png")
     print(f"Saved: {pie_path}")
     print(f"Saved: {trend_path}")
-
-
+ 
+ 
 if __name__ == "__main__":
     main()
